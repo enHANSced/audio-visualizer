@@ -26,12 +26,105 @@
             left: calc(50% - 250px);
             z-index: 1;
         }
+
+        .settings-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #ff0000;
+            padding: 15px;
+            border-radius: 8px;
+            color: #fff;
+            z-index: 1000;
+            min-width: 250px;
+            font-family: Arial, sans-serif;
+            display: none;
+        }
+
+        .settings-panel h3 {
+            margin: 0 0 15px 0;
+            color: #ff0000;
+        }
+
+        .settings-panel label {
+            display: block;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+
+        .settings-panel select,
+        .settings-panel input[type="range"] {
+            width: 100%;
+            margin: 5px 0;
+            accent-color: #ff0000;
+        }
+
+        .settings-toggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #ff0000;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            opacity: 0.2;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 1001;
+        }
+
+        #fps {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: #ff0000;
+            font-family: monospace;
+            display: none;
+        }
     </style>
 </head>
 
 <body>
     <img id="logo" src="Bytologo3.png" alt="Logo">
     <canvas id="canvas"></canvas>
+    <div id="fps">FPS: 0</div>
+    <button class="settings-toggle" onclick="toggleSettings()">⚙️</button>
+    <div class="settings-panel" id="settingsPanel">
+        <h3>Visualizer Settings</h3>
+
+        <label>Animation Style:
+            <select id="animationStyle">
+                <option value="circle">Circle</option>
+                <option value="wave">Wave</option>
+                <option value="spiral">Spiral</option>
+                <option value="dna">DNA</option>
+                <option value="orbit">Orbit</option>
+                <option value="matrix">Matrix</option>
+                <option value="vortex">Vortex</option>
+            </select>
+        </label>
+
+        <label>Audio Sensitivity: <span id="sensitivityValue">0.8</span>
+            <input type="range" id="sensitivity" min="0.1" max="2" step="0.1" value="0.8">
+        </label>
+
+        <label>Animation Speed: <span id="speedValue">0.1</span>
+            <input type="range" id="speed" min="0.01" max="0.5" step="0.01" value="0.1">
+        </label>
+
+        <label>
+            <input type="checkbox" id="showFps"> Show FPS
+        </label>
+
+        <label>
+            <input type="checkbox" id="invertColors"> Invert Colors
+        </label>
+
+        <label>
+            <input type="checkbox" id="autoRotate" checked> Auto Rotate Styles
+        </label>
+    </div>
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d', { alpha: false });
@@ -43,10 +136,23 @@
         let analyzer;
         let dataArray;
         const particles = [];
-        const particleCount = 110;
+        const particleCount = 100;
         const baseRadius = Math.min(canvas.width, canvas.height) / 3; // Smaller base radius
         const maxExpansion = Math.min(canvas.width, canvas.height) / 1.5; // Larger max expansion
         let hue = 0; // Red color
+        let rotationInterval;
+
+        let settings = {
+            sensitivity: 0.8,
+            speed: 0.1,
+            showFps: false,
+            invertColors: false,
+            autoRotate: true
+        };
+
+        let lastTime = performance.now();
+        let frames = 0;
+        let fps = 0;
 
         const animationStyles = {
             circle: {
@@ -185,7 +291,7 @@
 
         let currentStyle = 'circle';
         let styleTransition = 0;
-        const STYLE_CHANGE_INTERVAL = 60000; // Change style every minute
+        const STYLE_CHANGE_INTERVAL = 30000; // Change style every 30 seconds
 
         class Particle {
             constructor(index) {
@@ -202,9 +308,9 @@
 
             update(audioData) {
                 const audioIndex = Math.floor(this.index * audioData.length / particleCount);
-                const audioValue = (audioData[audioIndex] / 255) * 0.8; // Reduced sensitivity
+                const audioValue = (audioData[audioIndex] / 255) * settings.sensitivity;
 
-                this.speed = audioValue * 0.1;
+                this.speed = audioValue * settings.speed;
                 this.radius = this.baseRadius + (audioValue * (maxExpansion - baseRadius));
                 this.brightness = audioValue * 0.8;
                 this.size = 2 + audioValue * 6;
@@ -215,8 +321,7 @@
             }
 
             draw() {
-                // Add glow effect to particles
-                ctx.shadowBlur = 15;
+                ctx.shadowBlur = 10; // Fixed value
                 ctx.shadowColor = `rgba(255, 0, 0, ${this.brightness})`;
                 ctx.fillStyle = `rgba(255, ${this.brightness * 20}, ${this.brightness * 20}, ${0.7 + this.brightness * 0.3})`;
                 ctx.beginPath();
@@ -249,12 +354,28 @@
 
         function animate() {
             requestAnimationFrame(animate);
+
+            // FPS calculation
+            frames++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frames;
+                frames = 0;
+                lastTime = currentTime;
+                if (settings.showFps) {
+                    document.getElementById('fps').textContent = `FPS: ${fps}`;
+                }
+            }
+
             analyzer.getByteFrequencyData(dataArray);
 
             const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
             const normalizedAvg = average / 255;
 
-            ctx.fillStyle = `rgba(0, 0, 0, ${0.3 - normalizedAvg * 0.1})`;
+            // Clear with inverted colors if needed
+            ctx.fillStyle = settings.invertColors ?
+                `rgba(255, 255, 255, ${0.3 - normalizedAvg * 0.1})` :
+                `rgba(0, 0, 0, ${0.3 - normalizedAvg * 0.1})`;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             // Apply current style gradient
@@ -266,9 +387,9 @@
                 particle.draw();
             });
 
-            // Draw connecting lines
+            // Draw connecting lines with fixed glow
             ctx.beginPath();
-            ctx.shadowBlur = 10;
+            ctx.shadowBlur = 10; // Fixed value
             ctx.shadowColor = `rgba(255, 0, 0, ${normalizedAvg})`;
             ctx.strokeStyle = `rgba(255, 0, 0, ${normalizedAvg * 0.5})`;
             ctx.lineWidth = 1;
@@ -293,7 +414,7 @@
         }
 
         // Start style rotation
-        setInterval(rotateStyle, STYLE_CHANGE_INTERVAL);
+        rotationInterval = setInterval(rotateStyle, STYLE_CHANGE_INTERVAL);
 
         // Debounced resize handler
         let resizeTimeout;
@@ -304,6 +425,48 @@
                 canvas.height = window.innerHeight;
             }, 250);
         });
+
+        function toggleSettings() {
+            const panel = document.getElementById('settingsPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function updateSettings() {
+            settings.sensitivity = parseFloat(document.getElementById('sensitivity').value);
+            settings.speed = parseFloat(document.getElementById('speed').value);
+            settings.showFps = document.getElementById('showFps').checked;
+            settings.invertColors = document.getElementById('invertColors').checked;
+            settings.autoRotate = document.getElementById('autoRotate').checked;
+
+            // Update display values
+            document.getElementById('sensitivityValue').textContent = settings.sensitivity;
+            document.getElementById('speedValue').textContent = settings.speed;
+
+            // Update FPS display
+            document.getElementById('fps').style.display = settings.showFps ? 'block' : 'none';
+
+            // Handle auto-rotation
+            if (settings.autoRotate) {
+                if (!rotationInterval) {
+                    rotationInterval = setInterval(rotateStyle, STYLE_CHANGE_INTERVAL);
+                }
+            } else {
+                if (rotationInterval) {
+                    clearInterval(rotationInterval);
+                    rotationInterval = null;
+                }
+                currentStyle = document.getElementById('animationStyle').value;
+            }
+        }
+
+        // Add event listeners for settings
+        document.querySelectorAll('.settings-panel input, .settings-panel select').forEach(input => {
+            input.addEventListener('change', updateSettings);
+            input.addEventListener('input', updateSettings);
+        });
+
+        // Initialize settings
+        updateSettings();
 
         initAudio();
     </script>
