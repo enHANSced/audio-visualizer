@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Optimized Audio Visualizer</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            filter: drop-shadow(0 0 10px rgba(255, 0, 0, 0.5));
+        }
+
+        #logo {
+            position: absolute;
+            width: 500px;
+            height: auto;
+            top: calc(50% - 250px);
+            left: calc(50% - 250px);
+            z-index: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <img id="logo" src="Bytologo3.png" alt="Logo">
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let audioContext;
+        let analyzer;
+        let dataArray;
+        const particles = [];
+        const particleCount = 110;
+        const baseRadius = Math.min(canvas.width, canvas.height) / 3; // Smaller base radius
+        const maxExpansion = Math.min(canvas.width, canvas.height) / 1.5; // Larger max expansion
+        let hue = 0; // Red color
+
+        const animationStyles = {
+            circle: {
+                particleMovement: (particle, audioValue) => {
+                    particle.angle += particle.speed * 0.5; // Reduced speed
+                    return {
+                        x: canvas.width / 2 + Math.cos(particle.angle) * particle.radius,
+                        y: canvas.height / 2 + Math.sin(particle.angle) * particle.radius
+                    };
+                },
+                gradient: (ctx, normalizedAvg) => {
+                    const gradient = ctx.createRadialGradient(
+                        canvas.width / 2, canvas.height / 2, 0,
+                        canvas.width / 2, canvas.height / 2, maxExpansion * 1.5
+                    );
+                    gradient.addColorStop(0, `rgba(255, 0, 0, ${normalizedAvg * 0.3})`);
+                    gradient.addColorStop(1, 'transparent');
+                    return gradient;
+                }
+            },
+            wave: {
+                particleMovement: (particle, audioValue) => {
+                    particle.angle += particle.speed;
+                    const wave = Math.sin(particle.angle * 2) * 100 * audioValue; // Increased wave intensity
+                    return {
+                        x: (canvas.width * particle.index / particleCount),
+                        y: canvas.height / 2 + wave
+                    };
+                },
+                gradient: (ctx, normalizedAvg) => {
+                    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                    gradient.addColorStop(0, `rgba(255, 0, 0, ${normalizedAvg * 0.4})`); // Increased gradient intensity
+                    gradient.addColorStop(0.5, 'transparent');
+                    gradient.addColorStop(1, `rgba(255, 0, 0, ${normalizedAvg * 0.4})`); // Increased gradient intensity
+                    return gradient;
+                }
+            },
+            spiral: {
+                particleMovement: (particle, audioValue) => {
+                    particle.angle += particle.speed * 0.4; // Reduced speed
+                    // Fixed spiral calculation
+                    const spiralRadius = particle.baseRadius + (particle.angle * 0.5); // Reduced expansion
+                    return {
+                        x: canvas.width / 2 + Math.cos(particle.angle) * spiralRadius,
+                        y: canvas.height / 2 + Math.sin(particle.angle) * spiralRadius
+                    };
+                },
+                gradient: (ctx, normalizedAvg) => {
+                    const gradient = ctx.createRadialGradient(
+                        canvas.width / 2, canvas.height / 2, 0,
+                        canvas.width / 2, canvas.height / 2, maxExpansion
+                    );
+                    gradient.addColorStop(0, `rgba(255, 0, 0, ${normalizedAvg * 0.3})`);
+                    gradient.addColorStop(1, 'transparent');
+                    return gradient;
+                }
+            },
+
+            dna: {
+                particleMovement: (particle, audioValue) => {
+                    particle.angle += particle.speed * 0.3;
+                    const radius = baseRadius * 0.5;
+                    const xOffset = Math.sin(particle.angle) * radius * audioValue;
+                    return {
+                        x: (canvas.width * particle.index / particleCount),
+                        y: canvas.height / 2 + Math.cos(particle.angle * 2) * radius + xOffset
+                    };
+                },
+                gradient: (ctx, normalizedAvg) => {
+                    const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                    gradient.addColorStop(0, `rgba(255, 0, 0, ${normalizedAvg * 0.2})`);
+                    gradient.addColorStop(0.5, 'transparent');
+                    gradient.addColorStop(1, `rgba(255, 0, 0, ${normalizedAvg * 0.2})`);
+                    return gradient;
+                }
+            },
+
+            orbit: {
+                particleMovement: (particle, audioValue) => {
+                    particle.angle += particle.speed * 0.4;
+                    const orbitRadius = baseRadius * (1 + Math.sin(particle.angle * 0.2) * audioValue);
+                    return {
+                        x: canvas.width / 2 + Math.cos(particle.angle) * orbitRadius,
+                        y: canvas.height / 2 + Math.sin(particle.angle * 2) * orbitRadius * 0.5
+                    };
+                },
+                gradient: (ctx, normalizedAvg) => {
+                    const gradient = ctx.createRadialGradient(
+                        canvas.width / 2, canvas.height / 2, baseRadius * 0.2,
+                        canvas.width / 2, canvas.height / 2, maxExpansion
+                    );
+                    gradient.addColorStop(0, `rgba(255, 0, 0, ${normalizedAvg * 0.4})`);
+                    gradient.addColorStop(1, 'transparent');
+                    return gradient;
+                }
+            },
+
+            matrix: {
+                particleMovement: (particle, audioValue) => {
+                    particle.angle += particle.speed * 0.5;
+                    return {
+                        x: (canvas.width * particle.index / particleCount),
+                        y: (particle.angle * 50) % canvas.height + (audioValue * 100)
+                    };
+                },
+                gradient: (ctx, normalizedAvg) => {
+                    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                    gradient.addColorStop(0, 'transparent');
+                    gradient.addColorStop(0.5, `rgba(255, 0, 0, ${normalizedAvg * 0.2})`);
+                    gradient.addColorStop(1, 'transparent');
+                    return gradient;
+                }
+            },
+
+            vortex: {
+                particleMovement: (particle, audioValue) => {
+                    particle.angle += particle.speed * (0.3 + particle.index * 0.0001);
+                    const radius = baseRadius * (1 - particle.index / particleCount) * (1 + audioValue);
+                    return {
+                        x: canvas.width / 2 + Math.cos(particle.angle) * radius,
+                        y: canvas.height / 2 + Math.sin(particle.angle) * radius
+                    };
+                },
+                gradient: (ctx, normalizedAvg) => {
+                    const gradient = ctx.createRadialGradient(
+                        canvas.width / 2, canvas.height / 2, 0,
+                        canvas.width / 2, canvas.height / 2, maxExpansion
+                    );
+                    gradient.addColorStop(0, `rgba(255, 0, 0, ${normalizedAvg * 0.5})`);
+                    gradient.addColorStop(0.3, `rgba(255, 20, 20, ${normalizedAvg * 0.2})`);
+                    gradient.addColorStop(1, 'transparent');
+                    return gradient;
+                }
+            }
+        };
+
+        let currentStyle = 'circle';
+        let styleTransition = 0;
+        const STYLE_CHANGE_INTERVAL = 60000; // Change style every minute
+
+        class Particle {
+            constructor(index) {
+                this.index = index;
+                this.angle = (index / particleCount) * Math.PI * 2;
+                this.radius = baseRadius;
+                this.baseRadius = baseRadius;
+                this.x = 0;
+                this.y = 0;
+                this.speed = 0;
+                this.brightness = 0;
+                this.size = 2;
+            }
+
+            update(audioData) {
+                const audioIndex = Math.floor(this.index * audioData.length / particleCount);
+                const audioValue = (audioData[audioIndex] / 255) * 0.8; // Reduced sensitivity
+
+                this.speed = audioValue * 0.1;
+                this.radius = this.baseRadius + (audioValue * (maxExpansion - baseRadius));
+                this.brightness = audioValue * 0.8;
+                this.size = 2 + audioValue * 6;
+
+                const newPos = animationStyles[currentStyle].particleMovement(this, audioValue);
+                this.x = newPos.x;
+                this.y = newPos.y;
+            }
+
+            draw() {
+                // Add glow effect to particles
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = `rgba(255, 0, 0, ${this.brightness})`;
+                ctx.fillStyle = `rgba(255, ${this.brightness * 20}, ${this.brightness * 20}, ${0.7 + this.brightness * 0.3})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function initParticles() {
+            for (let i = 0; i < particleCount; i++) {
+                particles.push(new Particle(i));
+            }
+        }
+
+        function initAudio() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const source = audioContext.createMediaStreamSource(stream);
+                    analyzer = audioContext.createAnalyser();
+                    source.connect(analyzer);
+                    analyzer.fftSize = 512; // Reduced from 1024
+                    dataArray = new Uint8Array(analyzer.frequencyBinCount);
+                    initParticles();
+                    animate();
+                })
+                .catch(err => console.error('Error accessing microphone:', err));
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            analyzer.getByteFrequencyData(dataArray);
+
+            const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+            const normalizedAvg = average / 255;
+
+            ctx.fillStyle = `rgba(0, 0, 0, ${0.3 - normalizedAvg * 0.1})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Apply current style gradient
+            ctx.fillStyle = animationStyles[currentStyle].gradient(ctx, normalizedAvg);
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            particles.forEach(particle => {
+                particle.update(dataArray);
+                particle.draw();
+            });
+
+            // Draw connecting lines
+            ctx.beginPath();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = `rgba(255, 0, 0, ${normalizedAvg})`;
+            ctx.strokeStyle = `rgba(255, 0, 0, ${normalizedAvg * 0.5})`;
+            ctx.lineWidth = 1;
+            particles.forEach((particle, i) => {
+                if (i === 0) ctx.moveTo(particle.x, particle.y);
+                else ctx.lineTo(particle.x, particle.y);
+            });
+            ctx.closePath();
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            styleTransition++;
+        }
+
+        // Add style rotation
+        function rotateStyle() {
+            const styles = Object.keys(animationStyles);
+            const currentIndex = styles.indexOf(currentStyle);
+            const nextIndex = (currentIndex + 1) % styles.length;
+            currentStyle = styles[nextIndex];
+            styleTransition = 0;
+        }
+
+        // Start style rotation
+        setInterval(rotateStyle, STYLE_CHANGE_INTERVAL);
+
+        // Debounced resize handler
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }, 250);
+        });
+
+        initAudio();
+    </script>
+</body>
+
+</html>
